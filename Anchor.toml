@@ -10,10 +10,12 @@ skip-lint = false
 q3_26_vault = "aNksHVU3gU1mjCPtTBsVk9S7qokAUvXfotB2jBxQQvv"
 
 [provider]
-cluster = "localnet"
+cluster = "Localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "cargo test"
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
 [hooks]
+
+
