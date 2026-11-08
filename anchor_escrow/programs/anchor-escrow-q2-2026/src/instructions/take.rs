@@ -1,7 +1,13 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{associated_token::AssociatedToken, token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked, transfer_checked, CloseAccount, close_account}};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token_interface::{
+        close_account, transfer_checked, CloseAccount, Mint, TokenAccount, TokenInterface,
+        TransferChecked,
+    },
+};
 
-use crate::{ESCROW_SEED, error::ErrorCode, state::Escrow};
+use crate::{error::ErrorCode, state::Escrow, ESCROW_SEED};
 
 #[derive(Accounts)]
 pub struct Take<'info> {
@@ -16,12 +22,14 @@ pub struct Take<'info> {
         payer = taker,
         associated_token::mint = mint_a,
         associated_token::authority = taker,
+        associated_token::token_program = token_program
     )]
     pub taker_ata_a: InterfaceAccount<'info, TokenAccount>,
     #[account(
         mut,
         associated_token::mint = mint_b,
         associated_token::authority = taker,
+        associated_token::token_program = token_program
     )]
     pub taker_ata_b: InterfaceAccount<'info, TokenAccount>,
     #[account(
@@ -29,6 +37,7 @@ pub struct Take<'info> {
         payer = taker,
         associated_token::mint = mint_b,
         associated_token::authority = maker,
+        associated_token::token_program = token_program
     )]
     pub maker_ata_b: InterfaceAccount<'info, TokenAccount>,
     #[account(
@@ -45,6 +54,7 @@ pub struct Take<'info> {
         mut,
         associated_token::mint = mint_a,
         associated_token::authority = escrow,
+        associated_token::token_program = token_program
     )]
     pub vault: InterfaceAccount<'info, TokenAccount>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -55,12 +65,15 @@ pub struct Take<'info> {
 impl<'info> Take<'info> {
     // Check if the escrow has expired
     pub fn check_expiration(&self) -> Result<()> {
-        require!(Clock::get()?.unix_timestamp < self.escrow.expiration , ErrorCode::EscrowExpired);
+        require!(
+            Clock::get()?.unix_timestamp <= self.escrow.expiration,
+            ErrorCode::EscrowExpired
+        );
         Ok(())
     }
-    //Deposit tokens from taker to maker
-    pub fn deposit(&mut self) -> Result<()> {
 
+    // Deposit tokens from taker to maker
+    pub fn deposit(&mut self) -> Result<()> {
         let cpi_accounts = TransferChecked {
             from: self.taker_ata_b.to_account_info(),
             to: self.maker_ata_b.to_account_info(),
@@ -68,21 +81,23 @@ impl<'info> Take<'info> {
             mint: self.mint_b.to_account_info(),
         };
 
-        let cpi_ctx = CpiContext::new(self.token_program.key(), cpi_accounts);
+        let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), cpi_accounts);
 
         transfer_checked(cpi_ctx, self.escrow.receive, self.mint_b.decimals)
     }
 
-    //Withdraw tokens from vault to taker and close vault
+    // Withdraw tokens from vault to taker and close vault
     pub fn withdraw_and_close_vault(&mut self) -> Result<()> {
-        let signer_seeds: [&[&[u8]]; 1] = [&[
+        let maker_key = self.maker.key();
+        let seed_bytes = self.escrow.seed.to_le_bytes();
+        let signer_seeds: &[&[&[u8]]] = &[&[
             ESCROW_SEED,
-            self.maker.key.as_ref(),
-            &self.escrow.seed.to_le_bytes()[..],
-            &[self.escrow.bump]
+            maker_key.as_ref(),
+            seed_bytes.as_ref(),
+            &[self.escrow.bump],
         ]];
 
-        let cpi_program = self.token_program.key();
+        let cpi_program = self.token_program.to_account_info();
 
         let cpi_accounts = TransferChecked {
             from: self.vault.to_account_info(),
@@ -91,18 +106,18 @@ impl<'info> Take<'info> {
             mint: self.mint_a.to_account_info(),
         };
 
-        let cpi_context = CpiContext::new_with_signer(cpi_program, cpi_accounts, &signer_seeds);
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts, signer_seeds);
 
-        transfer_checked(cpi_context, self.vault.amount, self.mint_a.decimals)?;
+        transfer_checked(cpi_ctx, self.vault.amount, self.mint_a.decimals)?;
 
-        let cpi_accounts = CloseAccount {
+        let close_accounts = CloseAccount {
             account: self.vault.to_account_info(),
             destination: self.maker.to_account_info(),
             authority: self.escrow.to_account_info(),
         };
 
-        let cpi_context = CpiContext::new_with_signer(cpi_program, cpi_accounts, &signer_seeds);
+        let close_ctx = CpiContext::new_with_signer(cpi_program, close_accounts, signer_seeds);
 
-        close_account(cpi_context)
+        close_account(close_ctx)
     }
 }
