@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
@@ -30,7 +29,7 @@ pub struct Make<'info> {
         init,
         payer = maker,
         seeds = [ESCROW_SEED, maker.key().as_ref(), seed.to_le_bytes().as_ref()],
-        space = Escrow::DISCRIMINATOR.len() + Escrow::INIT_SPACE,
+        space = 8 + Escrow::INIT_SPACE,
         bump
     )]
     pub escrow: Account<'info, Escrow>,
@@ -46,34 +45,45 @@ pub struct Make<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
+
 impl<'info> Make<'info> {
-    //Initialize escrow
+    // Initialize escrow
     pub fn init_escrow(&mut self, seed: u64, receive: u64, bumps: &MakeBumps, expiration: i64) -> Result<()> {
+        let clock = Clock::get()?;
 
         self.escrow.set_inner(Escrow {
             seed,
             maker: self.maker.key(),
             mint_a: self.mint_a.key(),
             mint_b: self.mint_b.key(),
-            receive: receive,
+            receive,
             bump: bumps.escrow,
-            expiration: expiration,
+            expiration: clock.unix_timestamp + expiration,
         });
         Ok(())
     }
 
-    //Deposit tokens from maker to vault
+    // Deposit tokens from maker to vault
     pub fn deposit(&mut self, deposit: u64) -> Result<()> {
-
         let transfer_accounts = TransferChecked {
             from: self.maker_ata_a.to_account_info(),
             mint: self.mint_a.to_account_info(),
             to: self.vault.to_account_info(),
-            authority: self.maker.to_account_info()
+            authority: self.maker.to_account_info(),
         };
 
-        let cpi_ctx = CpiContext::new(self.token_program.key(), transfer_accounts);
+        let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), transfer_accounts);
 
         transfer_checked(cpi_ctx, deposit, self.mint_a.decimals)
     }
 }
+
+
+
+
+
+
+
+
+
+
