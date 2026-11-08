@@ -1,19 +1,23 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked, CloseAccount, close_account};
+use anchor_spl::token_interface::{
+    close_account, transfer_checked, CloseAccount, Mint, TokenAccount, TokenInterface,
+    TransferChecked,
+};
 
-use crate::{ESCROW_SEED, state::Escrow};
+use crate::{state::Escrow, ESCROW_SEED};
 
 #[derive(Accounts)]
 pub struct Refund<'info> {
     #[account(mut)]
-    maker: Signer<'info>,
-    mint_a: InterfaceAccount<'info, Mint>,
+    pub maker: Signer<'info>,
+    pub mint_a: InterfaceAccount<'info, Mint>,
     #[account(
         mut,
         associated_token::mint = mint_a,
         associated_token::authority = maker,
+        associated_token::token_program = token_program
     )]
-    maker_ata_a: InterfaceAccount<'info, TokenAccount>,
+    pub maker_ata_a: InterfaceAccount<'info, TokenAccount>,
     #[account(
         mut,
         close = maker,
@@ -27,23 +31,26 @@ pub struct Refund<'info> {
         mut,
         associated_token::mint = mint_a,
         associated_token::authority = escrow,
+        associated_token::token_program = token_program
     )]
-    vault: InterfaceAccount<'info, TokenAccount>,
-    token_program: Interface<'info, TokenInterface>,
-    system_program: Program<'info, System>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
+    pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> Refund<'info> {
-    //Refund tokens from vault to maker and close vault
+    // Refund tokens from vault to maker and close vault
     pub fn refund_and_close_vault(&mut self) -> Result<()> {
-        let signer_seeds: [&[&[u8]]; 1] = [&[
+        let maker_key = self.maker.key();
+        let seed_bytes = self.escrow.seed.to_le_bytes();
+        let signer_seeds: &[&[&[u8]]] = &[&[
             ESCROW_SEED,
-            self.maker.key.as_ref(),
-            &self.escrow.seed.to_le_bytes()[..],
-            &[self.escrow.bump]
+            maker_key.as_ref(),
+            seed_bytes.as_ref(),
+            &[self.escrow.bump],
         ]];
-        
-        let cpi_program = self.token_program.key();
+
+        let cpi_program = self.token_program.to_account_info();
 
         let cpi_accounts = TransferChecked {
             from: self.vault.to_account_info(),
@@ -52,21 +59,21 @@ impl<'info> Refund<'info> {
             authority: self.escrow.to_account_info(),
         };
 
-        let cpi_context = CpiContext::new_with_signer(cpi_program, cpi_accounts, &signer_seeds);
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts, signer_seeds);
 
-        transfer_checked(cpi_context, self.vault.amount, self.mint_a.decimals)?;
+        transfer_checked(cpi_ctx, self.vault.amount, self.mint_a.decimals)?;
 
-
-        let cpi_accounts = CloseAccount {
+        let close_accounts = CloseAccount {
             account: self.vault.to_account_info(),
             destination: self.maker.to_account_info(),
             authority: self.escrow.to_account_info(),
         };
 
-        let cpi_context = CpiContext::new_with_signer(cpi_program, cpi_accounts, &signer_seeds);
+        let close_ctx = CpiContext::new_with_signer(cpi_program, close_accounts, signer_seeds);
 
-        close_account(cpi_context)?;
-        
-        Ok(())
+        close_account(close_ctx)
     }
 }
+
+
+
