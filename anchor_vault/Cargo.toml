@@ -2,6 +2,9 @@
 members = [
     "programs/*"
 ]
+exclude = [
+    "programs/tests"
+]
 resolver = "2"
 
 [workspace.package]
@@ -12,6 +15,7 @@ rust-version = "1.89.0"
 overflow-checks = true
 lto = "fat"
 codegen-units = 1
+
 [profile.release.build-override]
 opt-level = 3
 incremental = false
